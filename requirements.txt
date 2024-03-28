@@ -1,0 +1,6 @@
+opencv-contrib-python
+mysql-connector-python
+python-dotenv
+Pillow
+numpy
+streamlit
