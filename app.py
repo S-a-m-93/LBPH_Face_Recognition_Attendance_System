@@ -14,9 +14,7 @@ mysql_user = os.environ.get("MYSQL_USER")
 mysql_password = os.environ.get("MYSQL_PASSWORD")
 mysql_database = os.environ.get("MYSQL_DATABASE")
 if not all([mysql_host, mysql_user, mysql_password, mysql_database]):
-            raise ValueError(
-                "Missing required environment variables for database connection."
-            )
+    raise ValueError("Missing required environment variables for database connection.")
 
 try:
     mydb = mysql.connector.connect(
@@ -42,6 +40,7 @@ def face_cropped(img):
             return cropped_face
     else:
         return None
+
 
 # Function to generate dataset
 def generate_dataset(name, roll_number):
@@ -216,85 +215,79 @@ def detect_and_predict(camera_index=0):
 
     st.header("Face Recognition")
 
-    while True:
-        ret, frame = cap.read()
+    ret, frame = cap.read()
+    if not ret:
+        st.error("Error: Could not capture frame from camera.")
+        cap.release()
+        cv2.destroyAllWindows()
+        return
 
-        if not ret:
-            st.error("Error: Could not capture frame from camera.")
-            break
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+    for x, y, w, h in faces:
+        roi = gray[y : y + h, x : x + w]
+        id, pred = classifier.predict(roi)
+        confidence = int(100 * (1 - pred / 300))
 
-        for x, y, w, h in faces:
-            roi = gray[y : y + h, x : x + w]
-            id, pred = classifier.predict(roi)
-            confidence = int(100 * (1 - pred / 300))
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
+        if confidence > 70:
+            try:
+                mycursor = mydb.cursor()
 
-            if confidence > 70:
-                try:
-                    mycursor = mydb.cursor()
+                # Get name and roll number
+                sql = "SELECT name, roll_number FROM user_data WHERE id = %s"
+                val = (id,)
+                mycursor.execute(sql, val)
+                result = mycursor.fetchone()
+                name, roll_number = result
 
-                    # Get name and roll number
-                    sql = "SELECT name, roll_number FROM user_data WHERE id = %s"
+                # Get current date and timestamp
+                current_datetime = datetime.datetime.now()
+                current_time = current_datetime.strftime("%H:%M:%S")
+                todays_date = current_datetime.strftime("%Y-%m-%d")
+
+                # Create or check date column for today
+                create_date_column_if_not_exists(todays_date)
+
+                # Check if the user is already marked for today
+                sql = f"SELECT `{todays_date}` FROM user_data WHERE id = %s"
+                val = (id,)
+                mycursor.execute(sql, val)
+                result = mycursor.fetchone()
+                first_attendance_time = result[0] if result else None
+
+                # Update attendance only if not already marked today
+                if first_attendance_time is None:
+                    sql = f"UPDATE user_data SET `{todays_date}` = '{current_time}' WHERE id = %s"
                     val = (id,)
                     mycursor.execute(sql, val)
-                    result = mycursor.fetchone()
-                    name, roll_number = result
+                    mydb.commit()
 
-                    # Get current date and timestamp
-                    todays_date = datetime.date.today().strftime("%Y-%m-%d")
-                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                    marked_users.add(id)  # Add user ID to marked list
 
-                    # Create or check date column for today
-                    create_date_column_if_not_exists(todays_date)
+                # Display attendance details using first_attendance_time or current_time
+                st.subheader("Attendance Details")
+                display_time = first_attendance_time or current_time
+                message = "Marked"
+                attendance_details = f"""**Name:** {name}  
+                **Roll:** {roll_number}  
+                **Attendance:** {message}  
+                **Time:** {display_time}  
+                **Date:** {todays_date}"""
 
-                    # Check if the user is already marked for today
-                    if id in marked_users:
-                        message = "Marked"
-                    else:
-                        # Update attendance with timestamp if not already marked
-                        sql = f"UPDATE user_data SET `{todays_date}` = '{current_time}' WHERE id = %s AND `{todays_date}` IS NULL"
-                        val = (id,)
-                        mycursor.execute(sql, val)
-                        mydb.commit()
+                st.markdown(attendance_details)
+                st.success("Attendance marked successfully!")
 
-                        marked_users.add(id)  # Add user ID to marked list
-                        message = "Marked"
-
-                    # Display message
-                    cv2.putText(
-                        frame,
-                        f"Name: {name}, Roll: {roll_number} ({message})",
-                        (x + 2, y + h + 25),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (255, 0, 0),
-                        1,
-                        cv2.LINE_AA,
-                    )
-
-                except mysql.connector.Error as error:
-                    st.error("Database error:", error)
-
-            else:
-                cv2.putText(
-                    frame,
-                    "Unknown",
-                    (x + 2, y - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    1,
-                    cv2.LINE_AA,
-                )
-
-        st.image(frame, channels="BGR", use_column_width=True)
-
-        if cv2.waitKey(1) == ord("q"):
-            break
+            except mysql.connector.Error as error:
+                st.error("Database error:", error)
+        else:
+            # Unrecognized face
+            st.error(
+                "**You are not recognized.** Please go to the generate dataset page and then train the model."
+            )
+    st.image(frame, channels="BGR", use_column_width=True)
 
     cap.release()
     cv2.destroyAllWindows()
@@ -316,7 +309,9 @@ def main():
         roll_number = st.text_input("Enter roll number:")
 
         if st.button("Generate"):
-            st.write("Please look at the camera and ensure that you are in a well lit place.")
+            st.write(
+                "Please look at the camera and ensure that you are in a well lit place."
+            )
             generate_dataset(name, roll_number)
             st.success("Your pictures have been collected.")
             st.write("Please move on to the training classifier page.")
@@ -332,11 +327,10 @@ def main():
     elif page == "Start Attendance":
         st.header("Start Attendance")
         st.write("This page is used to start attendance.")
-
+        st.write("Please ensure there is only one person in the frame.")
         camera_index = st.number_input("Camera Index", value=0, step=1)
         if st.button("Start"):
             detect_and_predict(camera_index)
-            st.success("Attendance marked successfully!")
 
 
 if __name__ == "__main__":
