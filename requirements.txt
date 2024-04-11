@@ -1,8 +1,6 @@
 opencv-contrib-python
-opencv-python-headless
 mysql-connector-python
 python-dotenv
 Pillow
 numpy
 streamlit
-libgl1-mesa-glx
