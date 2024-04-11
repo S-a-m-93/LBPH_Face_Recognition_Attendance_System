@@ -7,36 +7,34 @@ import datetime
 import numpy as np
 
 load_dotenv()
-mysql_host = os.environ.get("MYSQL_HOST")
-mysql_user = os.environ.get("MYSQL_USER")
-mysql_password = os.environ.get("MYSQL_PASSWORD")
-mysql_database = os.environ.get("MYSQL_DATABASE")
-mydb = mysql.connector.connect(
-    host=mysql_host,
-    user=mysql_user,
-    password=mysql_password,
-    database=mysql_database,
-)
 
 
 def connect_to_database():
     """
-    Establishes a connection to the database using environment variables.
+    Establishes a connection to the database using secrets from Streamlit.
 
     Raises:
-        ValueError: If required environment variables for database connection are missing.
+        ValueError: If required secrets for database connection are missing.
         mysql.connector.Error: If there's an error connecting to the database.
 
     Returns:
         tuple: A tuple containing the established connection (`mydb`) and cursor (`mycursor`).
     """
+    mysql_host = st.secrets["MYSQL_HOST"]
+    mysql_user = st.secrets["MYSQL_USER"]
+    mysql_password = st.secrets["MYSQL_PASSWORD"]
+    mysql_database = st.secrets["MYSQL_DATABASE"]
 
     if not all([mysql_host, mysql_user, mysql_password, mysql_database]):
-        raise ValueError(
-            "Missing required environment variables for database connection."
-        )
+        raise ValueError("Missing required secrets for database connection.")
 
     try:
+        mydb = mysql.connector.connect(
+            host=mysql_host,
+            user=mysql_user,
+            password=mysql_password,
+            database=mysql_database,
+        )
         mycursor = mydb.cursor()
         return mydb, mycursor
     except mysql.connector.Error as err:
@@ -68,7 +66,7 @@ def face_cropped(img):
 
 
 # Function to generate dataset
-def generate_dataset(name, roll_number, data_dir, mycursor):
+def generate_dataset(name, roll_number, data_dir, mycursor, mydb):
     if name.strip() == "" or roll_number.strip() == "":
         st.error("Please enter both name and roll number.")
         return
@@ -148,7 +146,7 @@ def generate_dataset(name, roll_number, data_dir, mycursor):
 
 
 # Function to train classifier
-def train_classifier(data_dir, mycursor):
+def train_classifier(data_dir, mycursor, mydb):
     try:
         sql = "SELECT id, name, roll_number FROM user_data"  # Retrieve user data
         mycursor.execute(sql)
@@ -232,6 +230,7 @@ def create_date_column_if_not_exists(date_column, mydb):
 # Function to detect and predict
 def detect_and_predict(
     mycursor,
+    mydb,
     camera_index=0,
 ):
     classifier = cv2.face.LBPHFaceRecognizer_create()
@@ -278,7 +277,9 @@ def detect_and_predict(
                 todays_date = current_datetime.strftime("%Y-%m-%d")
 
                 # Create or check date column for today
-                create_date_column_if_not_exists(todays_date, mydb)
+                create_date_column_if_not_exists(
+                    todays_date,
+                )
 
                 # Check if the user is already marked for today
                 sql = f"SELECT `{todays_date}` FROM user_data WHERE id = %s"
@@ -345,7 +346,7 @@ def main():
             st.write(
                 "Please look at the camera and ensure that you are in a well lit place."
             )
-            generate_dataset(name, roll_number, data_dir, mycursor)
+            generate_dataset(name, roll_number, data_dir, mycursor, mydb)
             st.success("Your pictures have been collected.")
             st.write("Please move on to the training classifier page.")
 
@@ -354,7 +355,7 @@ def main():
         st.write("This page is used to train the classifier.")
         data_dir = st.text_input("Enter path to dataset directory")
         if st.button("Train"):
-            train_classifier(data_dir, mycursor)
+            train_classifier(data_dir, mycursor, mydb)
             st.success("Classifier trained successfully!")
 
     elif page == "Start Attendance":
@@ -363,7 +364,9 @@ def main():
         st.write("Please ensure there is only one person in the frame.")
         camera_index = st.number_input("Camera Index", value=0, step=1)
         if st.button("Start"):
-            detect_and_predict(mycursor, camera_index)
+            detect_and_predict(mycursor, mydb, camera_index)
+
+    close_database_connection(mydb, mycursor)  # Close connection at the end
 
 
 if __name__ == "__main__":
