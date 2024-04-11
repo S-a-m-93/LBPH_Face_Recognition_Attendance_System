@@ -324,11 +324,19 @@ def detect_and_predict(
 
 # Main function
 def main():
-    mydb, mycursor = connect_to_database()
-    if not mydb:
-        return
-    st.title("Face Recognition Attendance System")
+    try:
+        mydb, mycursor = connect_to_database()
+        if not mydb:
+            st.error(
+                "Failed to connect to the database. Please check your database configuration."
+            )
+            return
+        # Debugging output
+        st.write("Database connection successful!")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
 
+    st.title("Face Recognition Attendance System")
     # Navigation
     page = st.sidebar.selectbox(
         "Select Page", ["Generate Dataset", "Train Classifier", "Start Attendance"]
