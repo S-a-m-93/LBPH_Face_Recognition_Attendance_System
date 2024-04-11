@@ -4,3 +4,4 @@ python-dotenv
 Pillow
 numpy
 streamlit
+libgl1-mesa-glx
