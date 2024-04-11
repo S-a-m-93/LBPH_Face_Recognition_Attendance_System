@@ -43,7 +43,7 @@ def face_cropped(img):
 
 
 # Function to generate dataset
-def generate_dataset(name, roll_number):
+def generate_dataset(name, roll_number, data_dir):
     if name.strip() == "" or roll_number.strip() == "":
         st.error("Please enter both name and roll number.")
         return
@@ -76,7 +76,8 @@ def generate_dataset(name, roll_number):
                 face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
 
                 file_name_path = (
-                    "data/user."
+                    str(data_dir)
+                    + "/user."
                     + str(name)
                     + "."
                     + str(roll_number)
@@ -305,6 +306,7 @@ def main():
     if page == "Generate Dataset":
         st.header("Generate Dataset")
         st.write("This page is used to generate dataset.")
+        data_dir = st.text_input("Enter path for where you want to store your data:")
         name = st.text_input("Enter name:")
         roll_number = st.text_input("Enter roll number:")
 
@@ -312,7 +314,7 @@ def main():
             st.write(
                 "Please look at the camera and ensure that you are in a well lit place."
             )
-            generate_dataset(name, roll_number)
+            generate_dataset(name, roll_number, data_dir)
             st.success("Your pictures have been collected.")
             st.write("Please move on to the training classifier page.")
 
