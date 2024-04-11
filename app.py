@@ -39,7 +39,7 @@ def connect_to_database():
         mycursor = mydb.cursor()
         return mydb, mycursor
     except mysql.connector.Error as err:
-        st.error("Error connecting to database.")
+        print(f"Error connecting to database: {err}")
         return None, None
 
 
