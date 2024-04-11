@@ -20,12 +20,11 @@ def connect_to_database():
     Returns:
         tuple: A tuple containing the established connection (`mydb`) and cursor (`mycursor`).
     """
-    # Access secrets under the "general" section
-    secrets_general = st.secrets["general"]
-    mysql_host = secrets_general["MYSQL_HOST"]
-    mysql_user = secrets_general["MYSQL_USER"]
-    mysql_password = secrets_general["MYSQL_PASSWORD"]
-    mysql_database = secrets_general["MYSQL_DATABASE"]
+    # Access secrets
+    mysql_host = st.secrets["MYSQL_HOST"]
+    mysql_user = st.secrets["MYSQL_USER"]
+    mysql_password = st.secrets["MYSQL_PASSWORD"]
+    mysql_database = st.secrets["MYSQL_DATABASE"]
 
     if not all([mysql_host, mysql_user, mysql_password, mysql_database]):
         raise ValueError("Missing required secrets for database connection.")
