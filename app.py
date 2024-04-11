@@ -25,7 +25,7 @@ try:
     )
     mycursor = mydb.cursor()
 except mysql.connector.Error as err:
-    st.error("Error connecting to database:", err)
+    st.error("Error connecting to database.")
 
 
 # Function to crop the face from an image
@@ -106,7 +106,7 @@ def generate_dataset(name, roll_number, data_dir):
                         mydb.commit()
                         has_inserted_data = True
                     except mysql.connector.Error as err:
-                        st.error("Error inserting data:", err)
+                        st.error("Error inserting data.")
 
             if cv2.waitKey(1) == 13:
                 break
@@ -178,7 +178,7 @@ def train_classifier(data_dir):
             st.error(f"OpenCV error during training: {e}")
 
     except mysql.connector.Error as err:
-        st.error("Error connecting to database:", err)
+        st.error("Error connecting to database.")
 
     finally:
         if mydb:
@@ -282,7 +282,7 @@ def detect_and_predict(camera_index=0):
                 st.success("Attendance marked successfully!")
 
             except mysql.connector.Error as error:
-                st.error("Database error:", error)
+                st.error("Database error.")
         else:
             # Unrecognized face
             st.error(
