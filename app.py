@@ -279,9 +279,7 @@ def detect_and_predict(
                 todays_date = current_datetime.strftime("%Y-%m-%d")
 
                 # Create or check date column for today
-                create_date_column_if_not_exists(
-                    todays_date,
-                )
+                create_date_column_if_not_exists(todays_date, mydb)
 
                 # Check if the user is already marked for today
                 sql = f"SELECT `{todays_date}` FROM user_data WHERE id = %s"
@@ -355,7 +353,6 @@ def main():
     elif page == "Train Classifier":
         st.header("Train Classifier")
         st.write("This page is used to train the classifier.")
-        data_dir = st.text_input("Enter path to dataset directory")
         if st.button("Train"):
             train_classifier(data_dir, mycursor, mydb)
             st.success("Classifier trained successfully!")
