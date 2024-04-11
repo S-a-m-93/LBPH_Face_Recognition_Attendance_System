@@ -2,55 +2,45 @@ import streamlit as st
 import cv2
 import os
 import mysql.connector
-from dotenv import load_dotenv
 import datetime
 import numpy as np
-
-load_dotenv()
-mysql_host = os.environ.get("MYSQL_HOST")
-mysql_user = os.environ.get("MYSQL_USER")
-mysql_password = os.environ.get("MYSQL_PASSWORD")
-mysql_database = os.environ.get("MYSQL_DATABASE")
-mydb = mysql.connector.connect(
-    host=mysql_host,
-    user=mysql_user,
-    password=mysql_password,
-    database=mysql_database,
-)
+from streamlit.secrets import Secrets
 
 
+# Establish database connection
 def connect_to_database():
     """
-    Establishes a connection to the database using environment variables.
+    Establishes a connection to the database using secrets for credentials.
 
     Raises:
-        ValueError: If required environment variables for database connection are missing.
-        mysql.connector.Error: If there's an error connecting to the database.
+        ValueError: If required database credentials are missing.
 
     Returns:
         tuple: A tuple containing the established connection (`mydb`) and cursor (`mycursor`).
     """
 
+    secrets = Secrets()
+
+    mysql_host = secrets["MYSQL_HOST"]
+    mysql_user = secrets["MYSQL_USER"]
+    mysql_password = secrets["MYSQL_PASSWORD"]
+    mysql_database = secrets["MYSQL_DATABASE"]
+
     if not all([mysql_host, mysql_user, mysql_password, mysql_database]):
-        raise ValueError(
-            "Missing required environment variables for database connection."
-        )
+        raise ValueError("Missing required database credentials.")
 
     try:
+        mydb = mysql.connector.connect(
+            host=mysql_host,
+            user=mysql_user,
+            password=mysql_password,
+            database=mysql_database,
+        )
         mycursor = mydb.cursor()
         return mydb, mycursor
     except mysql.connector.Error as err:
         st.error("Error connecting to database.")
         return None, None
-
-
-def close_database_connection(mydb, mycursor):
-    """
-    Closes the database connection and cursor if they exist.
-    """
-    if mydb:
-        mycursor.close()
-        mydb.close()
 
 
 # Function to crop the face from an image
@@ -73,297 +63,207 @@ def generate_dataset(name, roll_number, data_dir, mycursor):
         st.error("Please enter both name and roll number.")
         return
 
-    while True:
-        sql = "SELECT * FROM user_data WHERE roll_number=%s"
-        val = (roll_number,)
-        mycursor.execute(sql, val)
-        result = mycursor.fetchone()
+    cap = cv2.VideoCapture(0)
+    img_id = 0
 
-        if result:
-            st.error("Roll number already exists.")
+    while img_id < 100:
+        ret, frame = cap.read()
+
+        if not ret:
+            st.error("Error reading frame from camera")
             break
 
-        cap = cv2.VideoCapture(0)
-        img_id = 0
-        has_inserted_data = False
+        face = face_cropped(frame)
+        if face is not None:
+            img_id += 1
+            face = cv2.resize(face, (200, 200))
+            face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
 
-        while img_id < 100:
-            ret, frame = cap.read()
+            file_name_path = (
+                str(data_dir)
+                + "/user."
+                + str(name)
+                + "."
+                + str(roll_number)
+                + "."
+                + str(img_id)
+                + ".jpg"
+            )
+            cv2.imwrite(file_name_path, face)
+            cv2.putText(
+                face,
+                str(img_id),
+                (50, 50),
+                cv2.FONT_HERSHEY_COMPLEX,
+                1,
+                (0, 255, 0),
+                2,
+            )
+            st.image(face, channels="GRAY", use_column_width=True)
 
-            if not ret:
-                st.error("Error reading frame from camera")
-                break
-
-            face = face_cropped(frame)
-            if face is not None:
-                img_id += 1
-                face = cv2.resize(face, (200, 200))
-                face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-
-                file_name_path = (
-                    str(data_dir)
-                    + "/user."
-                    + str(name)
-                    + "."
-                    + str(roll_number)
-                    + "."
-                    + str(img_id)
-                    + ".jpg"
-                )
-                cv2.imwrite(file_name_path, face)
-                cv2.putText(
-                    face,
-                    str(img_id),
-                    (50, 50),
-                    cv2.FONT_HERSHEY_COMPLEX,
-                    1,
-                    (0, 255, 0),
-                    2,
-                )
-                st.image(face, channels="GRAY", use_column_width=True)
-                if not has_inserted_data:
-                    try:
-                        sql = (
-                            "INSERT INTO user_data (name, roll_number) VALUES (%s, %s)"
-                        )
-                        val = (name, roll_number)
-                        mycursor.execute(sql, val)
-                        mydb.commit()
-                        has_inserted_data = True
-                    except mysql.connector.Error as err:
-                        st.error("Error inserting data.")
-
-            if cv2.waitKey(1) == 13:
-                break
-
-        cap.release()
-        cv2.destroyAllWindows()
-        st.success("Finished collecting samples.")
-
-        break
-    mycursor.close()
-    mydb.close()
-
-    pass
+    cap.release()
+    cv2.destroyAllWindows()
+    st.success("Finished collecting samples.")
 
 
 # Function to train classifier
 def train_classifier(data_dir, mycursor):
+    """
+    Train the classifier using face images stored in `data_dir` directory.
+
+    Args:
+        data_dir (str): Path to the directory containing face images.
+        mycursor: MySQL cursor object for database operations.
+    """
     try:
-        sql = "SELECT id, name, roll_number FROM user_data"  # Retrieve user data
-        mycursor.execute(sql)
+        mycursor.execute("SELECT id, name, roll_number FROM user_data")
         results = mycursor.fetchall()
 
         faces = []
         ids = []
 
         for row in results:
-            try:
-                id = row[0]
-                name = row[1]
-                roll_number = row[2]
+            id = row[0]
+            name = row[1]
+            roll_number = row[2]
 
-                # Construct the image filename based on the data format
-                filename = f"user.{name}.{roll_number}."  # Common prefix
+            # Construct the image filename based on the data format
+            filename_prefix = f"user.{name}.{roll_number}."
+            for image_number in range(1, 101):  # Assuming max 100 images per user
+                image_path = os.path.join(
+                    data_dir, f"{filename_prefix}{image_number}.jpg"
+                )
 
-                # Loop through potential image numbers (adjust if needed)
-                for image_number in range(1, 101):  # Assuming max 100 images per user
-                    image_path = os.path.join(
-                        data_dir, filename + f"{image_number}.jpg"
-                    )
-
-                    # Check if the image file exists
-                    if not os.path.isfile(image_path):
-                        continue  # Skip if image not found
-
-                    # Read the image from the file system
-                    img = cv2.imread(
-                        image_path, cv2.IMREAD_GRAYSCALE
-                    )  # Read as grayscale
-
-                    if img is None:  # Check if image is valid
-                        st.error(f"Error: Could not read image {image_path}")
-                        continue
-
-                    faces.append(img)
-                    ids.append(id)
-
-            except Exception as e:
-                st.error(f"Error processing user {name}: {e}")
-                continue
+                if os.path.isfile(image_path):
+                    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+                    if img is not None:
+                        faces.append(img)
+                        ids.append(id)
 
         ids = np.array(ids)
 
-        try:
-            clf = cv2.face.LBPHFaceRecognizer_create()
-            clf.train(faces, ids)
-            clf.write("classifier.xml")
-            st.success("Classifier trained successfully!")
-        except cv2.error as e:
-            st.error(f"OpenCV error during training: {e}")
+        clf = cv2.face.LBPHFaceRecognizer_create()
+        clf.train(faces, ids)
+        clf.write("classifier.xml")
+        st.success("Classifier trained successfully!")
 
     except mysql.connector.Error as err:
-        st.error("Error connecting to database.")
-
-    finally:
-        if mydb:
-            mycursor.close()
-            mydb.close()
-
-    pass
+        st.error("Error accessing database.")
 
 
 # Function to create date column if not exists
-def create_date_column_if_not_exists(date_column, mydb):
+def create_date_column_if_not_exists(date_column, mycursor):
+    """
+    Create a new date column in the database table if it doesn't exist.
+
+    Args:
+        date_column (str): Name of the date column to create.
+        mycursor: MySQL cursor object for database operations.
+    """
     try:
-        mycursor = mydb.cursor()
         sql = f"SHOW COLUMNS FROM user_data LIKE '{date_column}'"
         mycursor.execute(sql)
         result = mycursor.fetchone()
-        if not result:  # date_column does not exist
+        if not result:
             sql = f"ALTER TABLE user_data ADD COLUMN `{date_column}` VARCHAR(20)"
             mycursor.execute(sql)
-            mydb.commit()
-    except mysql.connector.Error as error:
-        st.error("Database error:", error)
-    pass
+            st.success(f"Added new date column: {date_column}")
+    except mysql.connector.Error as err:
+        st.error("Error accessing database.")
 
 
 # Function to detect and predict
-def detect_and_predict(
-    mycursor,
-    camera_index=0,
-):
-    classifier = cv2.face.LBPHFaceRecognizer_create()
-    classifier.read("classifier.xml")
-    faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+def detect_and_predict(mycursor, camera_index=0):
+    """
+    Perform face detection and recognition using a trained classifier.
 
-    # Start face detection
-    cap = cv2.VideoCapture(camera_index)
-    marked_users = set()  # Set to store IDs of users marked present today
+    Args:
+        mycursor: MySQL cursor object for database operations.
+        camera_index (int): Index of the camera device to use for video capture.
+    """
+    try:
+        clf = cv2.face.LBPHFaceRecognizer_create()
+        clf.read("classifier.xml")
+        faceCascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
 
-    st.header("Face Recognition")
+        cap = cv2.VideoCapture(camera_index)
 
-    ret, frame = cap.read()
-    if not ret:
-        st.error("Error: Could not capture frame from camera.")
-        cap.release()
-        cv2.destroyAllWindows()
-        return
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("Error: Could not capture frame from camera.")
+                break
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
 
-    for x, y, w, h in faces:
-        roi = gray[y : y + h, x : x + w]
-        id, pred = classifier.predict(roi)
-        confidence = int(100 * (1 - pred / 300))
+            for x, y, w, h in faces:
+                roi = gray[y : y + h, x : x + w]
+                id, pred = clf.predict(roi)
+                confidence = int(100 * (1 - pred / 300))
 
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-
-        if confidence > 70:
-            try:
-                mycursor = mydb.cursor()
-
-                # Get name and roll number
-                sql = "SELECT name, roll_number FROM user_data WHERE id = %s"
-                val = (id,)
-                mycursor.execute(sql, val)
-                result = mycursor.fetchone()
-                name, roll_number = result
-
-                # Get current date and timestamp
-                current_datetime = datetime.datetime.now()
-                current_time = current_datetime.strftime("%H:%M:%S")
-                todays_date = current_datetime.strftime("%Y-%m-%d")
-
-                # Create or check date column for today
-                create_date_column_if_not_exists(todays_date, mydb)
-
-                # Check if the user is already marked for today
-                sql = f"SELECT `{todays_date}` FROM user_data WHERE id = %s"
-                val = (id,)
-                mycursor.execute(sql, val)
-                result = mycursor.fetchone()
-                first_attendance_time = result[0] if result else None
-
-                # Update attendance only if not already marked today
-                if first_attendance_time is None:
-                    sql = f"UPDATE user_data SET `{todays_date}` = '{current_time}' WHERE id = %s"
+                if confidence > 70:
+                    sql = "SELECT name, roll_number FROM user_data WHERE id = %s"
                     val = (id,)
                     mycursor.execute(sql, val)
-                    mydb.commit()
+                    result = mycursor.fetchone()
+                    if result:
+                        name, roll_number = result
+                        st.success(f"Recognized: {name}, Roll Number: {roll_number}")
+                else:
+                    st.warning("Unknown Person")
 
-                    marked_users.add(id)  # Add user ID to marked list
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-                # Display attendance details using first_attendance_time or current_time
-                st.subheader("Attendance Details")
-                display_time = first_attendance_time or current_time
-                message = "Marked"
-                attendance_details = f"""**Name:** {name}  
-                **Roll:** {roll_number}  
-                **Attendance:** {message}  
-                **Time:** {display_time}  
-                **Date:** {todays_date}"""
+            st.image(frame, channels="BGR", use_column_width=True)
 
-                st.markdown(attendance_details)
-                st.success("Attendance marked successfully!")
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
-            except mysql.connector.Error as error:
-                st.error("Database error.")
-        else:
-            # Unrecognized face
-            st.error(
-                "**You are not recognized.** Please go to the generate dataset page and then train the model."
-            )
-    st.image(frame, channels="BGR", use_column_width=True)
+        cap.release()
+        cv2.destroyAllWindows()
 
-    cap.release()
-    cv2.destroyAllWindows()
+    except mysql.connector.Error as err:
+        st.error("Error accessing database.")
 
 
 # Main function
 def main():
-    mydb, mycursor = connect_to_database()
-    if not mydb:
-        return
     st.title("Face Recognition Attendance System")
 
-    # Navigation
+    # Connect to database
+    mydb, mycursor = connect_to_database()
+    if not mydb:
+        st.error("Database connection error.")
+        return
+
+    # Page navigation
     page = st.sidebar.selectbox(
-        "Select Page", ["Generate Dataset", "Train Classifier", "Start Attendance"]
+        "Select Page", ["Train Classifier", "Create Date Column", "Detect and Predict"]
     )
 
-    if page == "Generate Dataset":
-        st.header("Generate Dataset")
-        st.write("This page is used to generate dataset.")
-        data_dir = st.text_input("Enter path for where you want to store your data:")
-        name = st.text_input("Enter name:")
-        roll_number = st.text_input("Enter roll number:")
-
-        if st.button("Generate"):
-            st.write(
-                "Please look at the camera and ensure that you are in a well lit place."
-            )
-            generate_dataset(name, roll_number, data_dir, mycursor)
-            st.success("Your pictures have been collected.")
-            st.write("Please move on to the training classifier page.")
-
-    elif page == "Train Classifier":
+    if page == "Train Classifier":
         st.header("Train Classifier")
-        st.write("This page is used to train the classifier.")
-        data_dir = st.text_input("Enter path to dataset directory")
+        data_dir = st.text_input("Enter path to dataset directory:")
         if st.button("Train"):
             train_classifier(data_dir, mycursor)
-            st.success("Classifier trained successfully!")
 
-    elif page == "Start Attendance":
-        st.header("Start Attendance")
-        st.write("This page is used to start attendance.")
-        st.write("Please ensure there is only one person in the frame.")
+    elif page == "Create Date Column":
+        st.header("Create Date Column")
+        date_column = st.text_input("Enter date column name:")
+        if st.button("Create"):
+            create_date_column_if_not_exists(date_column, mycursor)
+
+    elif page == "Detect and Predict":
+        st.header("Detect and Predict")
         camera_index = st.number_input("Camera Index", value=0, step=1)
-        if st.button("Start"):
+        if st.button("Start Detection"):
             detect_and_predict(mycursor, camera_index)
+
+    # Close database connection
+    if mydb:
+        mycursor.close()
+        mydb.close()
 
 
 if __name__ == "__main__":
