@@ -1,4 +1,3 @@
 my_env
-.env
 data
-.streamlit
+.streamlit/secrets.toml

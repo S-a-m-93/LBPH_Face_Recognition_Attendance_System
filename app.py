@@ -2,11 +2,8 @@ import streamlit as st
 import cv2
 import os
 import mysql.connector
-from dotenv import load_dotenv
 import datetime
 import numpy as np
-
-load_dotenv()
 
 
 def connect_to_database():
@@ -360,6 +357,7 @@ def main():
     elif page == "Train Classifier":
         st.header("Train Classifier")
         st.write("This page is used to train the classifier.")
+        data_dir = st.text_input("Enter path for where the data is stored.")
         if st.button("Train"):
             train_classifier(data_dir, mycursor, mydb)
             st.success("Classifier trained successfully!")
