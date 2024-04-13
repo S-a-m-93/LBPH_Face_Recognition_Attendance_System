@@ -100,9 +100,9 @@ This command will start the Streamlit server locally. Open a web browser and go 
 
 ## Usage
 
--- When you run the Streamlit app, you should see the interface for taking attendance.
--- The app will use your webcam to capture faces and recognize them using LBPH face recognition.
--- Detected faces will be compared against the database of students.
--- The system will mark attendance for recognized students in the MySQL database.
+- When you run the Streamlit app, you should see the interface for taking attendance.
+- The app will use your webcam to capture faces and recognize them using LBPH face recognition.
+- Detected faces will be compared against the database of students.
+- The system will mark attendance for recognized students in the MySQL database.
 
 By following these steps, you should be able to set up and run the face recognition attendance system locally on your machine within a virtual environment. This helps ensure a clean and isolated environment for your project's dependencies. If you have any questions or encounter issues during setup, feel free to reach out for assistance!
